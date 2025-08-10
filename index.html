@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>互動繪本生成神器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- 預設字體載入 -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" id="font-link-default">
+    <style>
+        :root {
+            --gen-bg: #f1f5f9; --gen-text: #1f2937; --gen-header: #4f46e5;
+            --gen-card-bg: #ffffff; --gen-border: #cbd5e1; --gen-primary-btn-bg: #4f46e5;
+            --gen-primary-btn-text: #ffffff; --gen-secondary-btn-bg: #e5e7eb;
+            --gen-secondary-btn-text: #374151; --gen-secondary-btn-active-bg: #4f46e5;
+            --gen-secondary-btn-active-text: #ffffff; --gen-symbol-color: rgba(0,0,0,.07);
+        }
+        /* 字體將由 JS 動態設定 */
+        body { 
+            background-color: var(--gen-bg); 
+            color: var(--gen-text); 
+            transition: background-color 0.5s, color 0.5s, font-family 0.3s; 
+        }
+        #app-container { transition: color 0.5s; }
+        #generator-header { color: var(--gen-header); transition: color 0.5s; }
+        .form-card { background-color: var(--gen-card-bg); transition: background-color 0.5s; }
+        .form-legend { border-bottom-color: var(--gen-border); }
+        .page-entry { border-color: var(--gen-border); background-color: var(--gen-card-bg); }
+        .page-entry:focus-within { border-color: var(--gen-header); box-shadow: 0 0 0 1px var(--gen-header); }
+        .primary-btn { background-color: var(--gen-primary-btn-bg); color: var(--gen-primary-btn-text); }
+        .symbol-btn { background-color: var(--gen-secondary-btn-bg); color: var(--gen-secondary-btn-text); transition: background-color 0.2s, color 0.2s; }
+        .symbol-btn.active { background-color: var(--gen-secondary-btn-active-bg); color: var(--gen-secondary-btn-active-text); }
+        .font-btn {
+            background-color: var(--gen-secondary-btn-bg);
+            color: var(--gen-secondary-btn-text);
+            transition: background-color 0.2s, color 0.2s, transform 0.2s;
+            border: 1px solid var(--gen-border);
+        }
+        .font-btn.active {
+            background-color: var(--gen-secondary-btn-active-bg);
+            color: var(--gen-secondary-btn-active-text);
+            border-color: var(--gen-secondary-btn-active-bg);
+            transform: scale(1.05);
+        }
+        .preview-image-container {
+            width: 128px; height: 80px;
+        }
+        .drag-handle { cursor: grab; color: #9ca3af; padding: 0 1rem; }
+        .sortable-ghost { background-color: #e0e7ff; opacity: 0.7; border-radius: 0.5rem; }
+        .sortable-chosen { cursor: grabbing; }
+        #loader { display: none; position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.75); z-index: 9999; color: white; font-size: 1.5rem; }
+        .spinner { border: 8px solid #f3f3f3; border-top: 8px solid var(--gen-header); border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .theme-btn { width: 2rem; height: 2rem; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 0 1px rgba(0,0,0,0.2); cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+        .theme-btn.active { transform: scale(1.2); box-shadow: 0 0 0 3px var(--gen-header); }
+        .symbol-btn i { margin-right: 0.5rem; }
+        .image-reselect-prompt { color: #f97316; font-size: 0.8rem; font-weight: bold; margin-top: 0.25rem; display: block; min-height: 1.2rem;}
+
+        .floating-symbol { position: absolute; animation: drift-fade-in-out both infinite; will-change: transform, opacity; }
+        .preview-floating-symbol { color: var(--gen-symbol-color); text-shadow: 0 0 5px var(--gen-symbol-color); transition: color 0.5s, text-shadow 0.5s; }
+        @keyframes drift-fade-in-out {
+            0% { transform: translate(var(--x-start), var(--y-start)) scale(0.8); opacity: 0; }
+            10%, 90% { transform: translate(var(--x-mid), var(--y-mid)) scale(1); opacity: 1; }
+            100% { transform: translate(var(--x-end), var(--y-end)) scale(0.8); opacity: 0; }
+        }
+        
+        .mascot { animation: glow 2s ease-in-out infinite alternate, float 3s ease-in-out infinite; filter: drop-shadow(0 0 10px #ffd700); cursor: pointer; transition: transform 0.3s ease; }
+        .mascot:hover { transform: scale(1.1); } .mascot.shake { animation: shake 0.5s ease-in-out, glow 2s ease-in-out infinite alternate, float 3s ease-in-out infinite; } .mascot.explode { animation: explode 0.8s ease-out forwards; }
+        @keyframes glow { from { filter: drop-shadow(0 0 10px #ffd700); } to { filter: drop-shadow(0 0 20px #ff6b6b) drop-shadow(0 0 30px #4ecdc4); } }
+        @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-10px); } }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        @keyframes explode { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(2); opacity: 0.8; } 100% { transform: scale(0); opacity: 0; } }
+        .particle { position: absolute; width: 6px; height: 6px; border-radius: 50%; pointer-events: none; animation: particle-fly 1s ease-out forwards; }
+        @keyframes particle-fly { 0% { transform: translate(0, 0) scale(1); opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)) scale(0); opacity: 0; } }
+    </style>
+</head>
+<body>
+    <div id="symbol-preview-container" class="fixed inset-0 -z-10 pointer-events-none overflow-hidden"></div>
+    <div id="loader" class="flex flex-col justify-center items-center"><div class="spinner mb-4"></div><p>正在生成繪本，請稍候...</p></div>
+
+    <div id="app-container" class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8"><h1 id="generator-header" class="text-4xl md:text-5xl font-bold">互動繪本生成神器</h1><p class="text-gray-600 mt-2">輸入故事內容，上傳圖片，一鍵生成您的專屬繪本！</p></header>
+
+        <div class="form-card p-4 rounded-lg shadow-md mb-6">
+            <h3 class="font-bold text-lg mb-2">檔案操作</h3>
+            <div class="flex flex-wrap gap-2">
+                <button type="button" id="save-progress-btn" class="symbol-btn px-4 py-2 rounded-md"><i class="fas fa-save mr-2"></i>儲存編輯進度 (.json)</button>
+                <button type="button" id="load-progress-btn" class="symbol-btn px-4 py-2 rounded-md"><i class="fas fa-folder-open mr-2"></i>匯入編輯進度</button>
+                <input type="file" id="load-file-input" class="hidden" accept=".json">
+            </div>
+        </div>
+
+        <form id="storybook-form" class="form-card p-6 rounded-xl shadow-lg space-y-8">
+            <fieldset class="space-y-6">
+                <legend class="form-legend text-2xl font-semibold border-b pb-2 mb-4">1. 全局設定</legend>
+                <div><label for="book-title" class="block text-lg font-medium">繪本主標題</label><input type="text" id="book-title" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-gray-800" placeholder="例如：鯉魚與老虎的勇氣之歌" required></div>
+                <div><label for="book-subtitle" class="block text-lg font-medium">繪本副標題</label><input type="text" id="book-subtitle" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-gray-800" placeholder="例如：一個關於勇氣與友誼的故事" required></div>
+                <div><label for="copyright" class="block text-lg font-medium">頁尾版權文字</label><input type="text" id="copyright" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-gray-800" placeholder="Copyright © Liyuchiutiger Gongminshen" required></div>
+                <div><label class="block text-lg font-medium">選擇配色風格</label><div id="theme-buttons-container" class="mt-2 flex flex-wrap gap-3"></div></div>
+                <div>
+                    <label class="block text-lg font-medium">選擇繪本字體 (即時預覽)</label>
+                    <div id="font-buttons-container" class="mt-2 flex flex-wrap gap-2"></div>
+                </div>
+                <div><label class="block text-lg font-medium">自訂背景漂浮符號 (即時預覽)</label><div class="mt-2 flex flex-wrap items-center gap-2"><div id="symbol-buttons-container" class="flex flex-wrap gap-2"></div><button type="button" id="clear-symbols-btn" class="symbol-btn px-3 py-1 rounded-md text-sm bg-red-100 text-red-700">清空</button><input type="text" id="custom-symbols-input" class="border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 w-full sm:w-auto text-gray-800" placeholder="或在此自訂 (例:🐯 🐠 )"></div></div>
+            </fieldset>
+
+            <fieldset>
+                <legend class="form-legend text-2xl font-semibold border-b pb-2 mb-4">2. 封面</legend>
+                <div class="page-entry p-4 rounded-lg" id="cover-entry">
+                    <div class="flex flex-col md:flex-row gap-4 items-center">
+                        <div class="flex-grow w-full">
+                            <h3 class="font-semibold text-gray-800 mb-2">封面圖片</h3>
+                            <input type="file" id="cover-image" class="image-input mt-1 block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" accept="image/*">
+                            <span class="image-reselect-prompt"></span>
+                        </div>
+                        <!-- START: Updated Placeholder with Font Awesome Icon -->
+                        <div class="preview-image-container flex-shrink-0 bg-slate-200 rounded-md border border-slate-300 flex items-center justify-center overflow-hidden relative">
+                            <div class="preview-placeholder flex items-center justify-center w-full h-full text-slate-400">
+                                <i class="fas fa-image fa-3x"></i>
+                            </div>
+                            <img src="" alt="封面預覽" class="preview-image hidden absolute inset-0 w-full h-full object-cover">
+                        </div>
+                        <!-- END: Updated Placeholder with Font Awesome Icon -->
+                    </div>
+                </div>
+            </fieldset>
+
+            <fieldset>
+                <legend class="form-legend text-2xl font-semibold border-b pb-2 mb-4">3. 故事內頁 (可拖曳排序)</legend>
+                <div id="pages-container" class="space-y-6"></div>
+                <button type="button" id="add-page-btn" class="primary-btn mt-6 inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm hover:opacity-90"><i class="fas fa-plus mr-2"></i>新增一頁</button>
+            </fieldset>
+
+            <div class="text-center pt-6 border-t mt-8"><button type="submit" class="w-full md:w-auto inline-flex justify-center items-center px-12 py-4 border border-transparent text-xl font-bold rounded-lg shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">生成並下載繪本 (.zip)</button></div>
+        </form>
+        
+        <footer class="text-center py-10 text-gray-500"><p>Copyright © Liyuchiutiger Gongminshen</p></footer>
+    </div>
+    
+    <div id="mascot" class="mascot fixed bottom-6 right-6 w-28 h-28 md:w-40 md:h-40 z-50">
+        <img src="image/LiyuChillGuy.svg" alt="吉祥物" class="w-full h-full" onerror="this.style.display='none'; console.error('Mascot image not found at image/LiyuChillGuy.svg')">
+    </div>
+
+    <template id="page-template">
+        <div class="page-entry p-4 rounded-lg relative transition-opacity duration-300 flex items-center">
+            <span class="drag-handle" title="拖曳排序"><i class="fas fa-grip-vertical fa-lg"></i></span>
+            <div class="flex-grow flex flex-col md:flex-row gap-4">
+                <div class="flex-grow"><h3 class="page-title font-semibold mb-2"></h3><textarea class="page-text block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-gray-800" rows="4" placeholder="請在此輸入這一頁的故事內容..." required></textarea></div>
+                <div class="flex-shrink-0 flex flex-col">
+                    <input type="file" class="image-input page-image mt-1 block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" accept="image/*">
+                    <span class="image-reselect-prompt"></span>
+                    <!-- START: Updated Placeholder with Font Awesome Icon for Template -->
+                    <div class="preview-image-container mt-2 self-center md:self-start bg-slate-200 rounded-md border border-slate-300 flex items-center justify-center overflow-hidden relative">
+                        <div class="preview-placeholder flex items-center justify-center w-full h-full text-slate-400">
+                             <i class="fas fa-image fa-3x"></i>
+                        </div>
+                        <img src="" alt="頁面預覽" class="preview-image hidden absolute inset-0 w-full h-full object-cover">
+                    </div>
+                    <!-- END: Updated Placeholder with Font Awesome Icon for Template -->
+                </div>
+            </div>
+            <button type="button" class="remove-page-btn absolute top-3 right-3 bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center shadow-md hover:bg-red-600 text-xl font-bold transition-transform hover:scale-110">&times;</button>
+        </div>
+    </template>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // --- App Object: Encapsulates all logic ---
+    const App = {
+        CONFIG: {
+            FONTS: [
+                { id: 'sans-serif', name: '現代無襯線 (預設)', value: "'Noto Sans TC', sans-serif", importUrl: "https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap"},
+                { id: 'serif', name: '典雅襯線體', value: "'Noto Serif TC', serif", importUrl: "https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;700&display=swap"},
+                { id: 'pixel', name: '像素風格體', value: "'Zpix', sans-serif", importUrl: "https://cdn.jsdelivr.net/gh/SolidZORO/zpix-pixel-font@2.0.8/dist/zpix.min.css"},
+                { id: 'rounded', name: '日式圓體', value: "'M PLUS Rounded 1c', sans-serif", importUrl: "https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700&display=swap"}
+            ],
+            THEMES: [
+                { isDark: true, name: "經典星空", id: "classic", gen: { bg: '#1a2a3a', text: '#e2e8f0', header: '#667eea', card: '#2d3748', border: '#4a5568', btn: '#4338ca', btnText: '#fff', sBtn: '#4a5568', sBtnText: '#e2e8f0', sBtnActive: '#667eea' }, book: { isDark: true, '--header-text-color': '#a3bffa', '--subheader-text-color': '#a3bffa', '--bg-grad-start': '#1a202c', '--bg-grad-mid': '#2d3748', '--bg-grad-end': '#4a5568', '--cover-grad-start': '#667eea', '--cover-grad-end': '#764ba2', '--page-bg-start': '#fef7cd', '--page-bg-end': '#fff8dc', '--page-border': '#d4af37', '--page-text': '#2d3748', }},
+                { isDark: false, name: "寧靜森林", id: "forest", gen: { bg: '#f0f4f0', text: '#344e41', header: '#588157', card: '#fff', border: '#dadfcc', btn: '#3a5a40', btnText: '#fff', sBtn: '#e9ede3', sBtnText: '#344e41', sBtnActive: '#588157' }, book: { isDark: true, '--header-text-color': '#f0ead2', '--subheader-text-color': '#f0ead2', '--bg-grad-start': '#2d574c', '--bg-grad-mid': '#3c6e71', '--bg-grad-end': '#353535', '--cover-grad-start': '#588157', '--cover-grad-end': '#3a5a40', '--page-bg-start': '#f2f2e8', '--page-bg-end': '#e8e8df', '--page-border': '#a3b18a', '--page-text': '#344e41', }},
+                { isDark: false, name: "海洋之心", id: "ocean", gen: { bg: '#f0f8ff', text: '#03045e', header: '#0096c7', card: '#fff', border: '#ade8f4', btn: '#0077b6', btnText: '#fff', sBtn: '#caf0f8', sBtnText: '#03045e', sBtnActive: '#0096c7' }, book: { isDark: true, '--header-text-color': '#caf0f8', '--subheader-text-color': '#caf0f8', '--bg-grad-start': '#003049', '--bg-grad-mid': '#00507a', '--bg-grad-end': '#287299', '--cover-grad-start': '#0096c7', '--cover-grad-end': '#00b4d8', '--page-bg-start': '#ffffff', '--page-bg-end': '#e0fbfc', '--page-border': '#90e0ef', '--page-text': '#023e8a', }},
+                { isDark: false, name: "溫暖日落", id: "sunset", gen: { bg: '#fff8f0', text: '#9e2a2b', header: '#d9534f', card: '#fff', border: '#ffdda6', btn: '#e09f3e', btnText: '#fff', sBtn: '#ffe5b4', sBtnText: '#9e2a2b', sBtnActive: '#d9534f' }, book: { isDark: true, '--header-text-color': '#fee440', '--subheader-text-color': '#fee440', '--bg-grad-start': '#4c1d38', '--bg-grad-mid': '#6a2846', '--bg-grad-end': '#ff7b00', '--cover-grad-start': '#ff9500', '--cover-grad-end': '#d9534f', '--page-bg-start': '#fff3b0', '--page-bg-end': '#ffe599', '--page-border': '#e09f3e', '--page-text': '#9e2a2b', }},
+                { isDark: false, name: "夢幻粉彩", id: "pastel", gen: { bg: '#fdf4f6', text: '#5e548e', header: '#d4a5a5', card: '#fff', border: '#f2d1d1', btn: '#e6a4b4', btnText: '#fff', sBtn: '#fde2e4', sBtnText: '#5e548e', sBtnActive: '#d4a5a5' }, book: { isDark: false, '--header-text-color': '#9d8189', '--subheader-text-color': '#9d8189', '--bg-grad-start': '#fbc2eb', '--bg-grad-mid': '#a6c1ee', '--bg-grad-end': '#c2e9fb', '--cover-grad-start': '#d4a5a5', '--cover-grad-end': '#ffc0cb', '--page-bg-start': '#ffffff', '--page-bg-end': '#faf3f3', '--page-border': '#e6a4b4', '--page-text': '#5e548e', }},
+                { isDark: false, name: "復古羊皮", id: "vintage", gen: { bg: '#fdf5e6', text: '#4e342e', header: '#795548', card: '#fffefb', border: '#d7ccc8', btn: '#5d4037', btnText: '#fff', sBtn: '#efebe9', sBtnText: '#4e342e', sBtnActive: '#795548' }, book: { isDark: true, '--header-text-color': '#f5eadd', '--subheader-text-color': '#f5eadd', '--bg-grad-start': '#5d4037', '--bg-grad-mid': '#795548', '--bg-grad-end': '#3e2723', '--cover-grad-start': '#a1887f', '--cover-grad-end': '#795548', '--page-bg-start': '#fdf5e6', '--page-bg-end': '#f5eadd', '--page-border': '#bcaaa4', '--page-text': '#4e342e', }},
+                { isDark: true, name: "黑客矩陣", id: "matrix", gen: { bg: '#000', text: '#39ff14', header: '#00ff41', card: '#0d0d0d', border: '#2a2a2a', btn: '#008f11', btnText: '#fff', sBtn: '#1a1a1a', sBtnText: '#39ff14', sBtnActive: '#00ff41' }, book: { isDark: true, '--header-text-color': '#39ff14', '--subheader-text-color': '#39ff14', '--bg-grad-start': '#000000', '--bg-grad-mid': '#0d0d0d', '--bg-grad-end': '#1a1a1a', '--cover-grad-start': '#00ff41', '--cover-grad-end': '#008f11', '--page-bg-start': '#1c1c1c', '--page-bg-end': '#101010', '--page-border': '#00ff41', '--page-text': '#39ff14', }},
+                { isDark: false, name: "高雅大理石", id: "marble", gen: { bg: '#f8f9fa', text: '#212529', header: '#495057', card: '#fff', border: '#dee2e6', btn: '#6c757d', btnText: '#fff', sBtn: '#e9ecef', sBtnText: '#343a40', sBtnActive: '#495057' }, book: { isDark: false, '--header-text-color': '#495057', '--subheader-text-color': '#6c757d', '--bg-grad-start': '#f8f9fa', '--bg-grad-mid': '#e9ecef', '--bg-grad-end': '#dee2e6', '--cover-grad-start': '#adb5bd', '--cover-grad-end': '#495057', '--page-bg-start': '#ffffff', '--page-bg-end': '#f8f9fa', '--page-border': '#ced4da', '--page-text': '#212529', }},
+                { isDark: false, name: "迷霧森林", id: "misty", gen: { bg: '#fefae0', text: '#283618', header: '#606c38', card: '#fff', border: '#dda15e', btn: '#606c38', btnText: '#fff', sBtn: '#faedcd', sBtnText: '#283618', sBtnActive: '#606c38' }, book: { isDark: true, '--header-text-color': '#fefae0', '--subheader-text-color': '#fefae0', '--bg-grad-start': '#283618', '--bg-grad-mid': '#606c38', '--bg-grad-end': '#fefae0', '--cover-grad-start': '#dda15e', '--cover-grad-end': '#bc6c25', '--page-bg-start': '#fffcf2', '--page-bg-end': '#fefae0', '--page-border': '#dda15e', '--page-text': '#283618', }},
+                { isDark: false, name: "櫻花之戀", id: "sakura", gen: { bg: '#fff0f3', text: '#d68c9f', header: '#ffafcc', card: '#fff', border: '#ffc2d1', btn: '#ffafcc', btnText: '#fff', sBtn: '#ffe5ec', sBtnText: '#bde0fe', sBtnActive: '#ffafcc' }, book: { isDark: false, '--header-text-color': '#a2d2ff', '--subheader-text-color': '#bde0fe', '--bg-grad-start': '#ffc2d1', '--bg-grad-mid': '#ffd3da', '--bg-grad-end': '#ffe5ec', '--cover-grad-start': '#a2d2ff', '--cover-grad-end': '#bde0fe', '--page-bg-start': '#ffffff', '--page-bg-end': '#fff5f5', '--page-border': '#ffafcc', '--page-text': '#595959', }},
+                { isDark: true, name: "星際旅行", id: "space", gen: { bg: '#03071e', text: '#f0f0f0', header: '#7209b7', card: '#1a1e34', border: '#3a0ca3', btn: '#7209b7', btnText: '#fff', sBtn: '#480ca8', sBtnText: '#f0f0f0', sBtnActive: '#7209b7' }, book: { isDark: true, '--header-text-color': '#f0f0f0', '--subheader-text-color': '#f0f0f0', '--bg-grad-start': '#03071e', '--bg-grad-mid': '#3a0ca3', '--bg-grad-end': '#f72585', '--cover-grad-start': '#7209b7', '--cover-grad-end': '#4361ee', '--page-bg-start': '#f0f8ff', '--page-bg-end': '#e6e6fa', '--page-border': '#b18cff', '--page-text': '#333333', }},
+                { isDark: false, name: "陽光沙灘", id: "beach", gen: { bg: '#fbfbfb', text: '#14213d', header: '#fca311', card: '#fff', border: '#e0e0e0', btn: '#fca311', btnText: '#000', sBtn: '#e9ecef', sBtnText: '#14213d', sBtnActive: '#fca311' }, book: { isDark: true, '--header-text-color': '#ffffff', '--subheader-text-color': '#ffffff', '--bg-grad-start': '#00a6fb', '--bg-grad-mid': '#0582ca', '--bg-grad-end': '#006494', '--cover-grad-start': '#ffdd00', '--cover-grad-end': '#fca311', '--page-bg-start': '#fefae0', '--page-bg-end': '#fff9d6', '--page-border': '#fca311', '--page-text': '#14213d', }},
+                { isDark: false, name: "糖果汽水", id: "candy", gen: { bg: '#f0f9ff', text: '#1e40af', header: '#f472b6', card: '#fff', border: '#bae6fd', btn: '#ec4899', btnText: '#fff', sBtn: '#fce7f3', sBtnText: '#db2777', sBtnActive: '#f472b6' }, book: { isDark: false, '--header-text-color': '#be185d', '--subheader-text-color': '#60a5fa', '--bg-grad-start': '#a5f3fc', '--bg-grad-mid': '#faf2a3', '--bg-grad-end': '#fecaca', '--cover-grad-start': '#f9a8d4', '--cover-grad-end': '#fef08a', '--page-bg-start': '#ffffff', '--page-bg-end': '#f0f9ff', '--page-border': '#f472b6', '--page-text': '#1e3a8a', }},
+                { isDark: true, name: "哥德羅曼", id: "gothic", gen: { bg: '#171717', text: '#d4d4d4', header: '#a21caf', card: '#262626', border: '#404040', btn: '#86198f', btnText: '#fff', sBtn: '#404040', sBtnText: '#d4d4d4', sBtnActive: '#a21caf' }, book: { isDark: true, '--header-text-color': '#e9d5ff', '--subheader-text-color': '#e9d5ff', '--bg-grad-start': '#1c1917', '--bg-grad-mid': '#44403c', '--bg-grad-end': '#292524', '--cover-grad-start': '#7e22ce', '--cover-grad-end': '#dc2626', '--page-bg-start': '#f5f5f4', '--page-bg-end': '#e7e5e4', '--page-border': '#a8a29e', '--page-text': '#27272a', }},
+                { isDark: false, name: "蒸汽龐克", id: "steampunk", gen: { bg: '#f5f3ef', text: '#43342b', header: '#b9955b', card: '#fff', border: '#dcd3c4', btn: '#8c7041', btnText: '#fff', sBtn: '#e7e2d9', sBtnText: '#43342b', sBtnActive: '#b9955b' }, book: { isDark: false, '--header-text-color': '#713f12', '--subheader-text-color': '#a16207', '--bg-grad-start': '#d7c6b3', '--bg-grad-mid': '#e0d8cd', '--bg-grad-end': '#cdc0ae', '--cover-grad-start': '#c0a777', '--cover-grad-end': '#a88d5e', '--page-bg-start': '#fdfbf6', '--page-bg-end': '#f7f1e9', '--page-border': '#b9955b', '--page-text': '#43342b', }},
+                { isDark: true, name: "賽博霓虹", id: "cyber", gen: { bg: '#020617', text: '#e0e7ff', header: '#00f6ff', card: '#0f172a', border: '#1e293b', btn: '#1d4ed8', btnText: '#fff', sBtn: '#1e293b', sBtnText: '#e0e7ff', sBtnActive: '#00f6ff' }, book: { isDark: true, '--header-text-color': '#7dd3fc', '--subheader-text-color': '#00f6ff', '--bg-grad-start': '#000000', '--bg-grad-mid': '#0c0220', '--bg-grad-end': '#20051a', '--cover-grad-start': '#ff00e5', '--cover-grad-end': '#00f6ff', '--page-bg-start': '#eef2ff', '--page-bg-end': '#e0e7ff', '--page-border': '#4f46e5', '--page-text': '#1e1b4b', }},
+                { isDark: false, name: "暖秋慢活", id: "autumn", gen: { bg: '#fffaf0', text: '#4d4029', header: '#d97706', card: '#fff', border: '#fde68a', btn: '#ca8a04', btnText: '#fff', sBtn: '#fef3c7', sBtnText: '#92400e', sBtnActive: '#d97706' }, book: { isDark: false, '--header-text-color': '#92400e', '--subheader-text-color': '#b45309', '--bg-grad-start': '#f3f0e8', '--bg-grad-mid': '#eadfca', '--bg-grad-end': '#e3d6c1', '--cover-grad-start': '#f59e0b', '--cover-grad-end': '#84cc16', '--page-bg-start': '#fefce8', '--page-bg-end': '#fffbeb', '--page-border': '#facc15', '--page-text': '#422006', }},
+            ],
+            SYMBOLS: { '魚': 'fas fa-fish', '星星': 'fas fa-star', '愛心': 'fas fa-heart', '雪花': 'fas fa-snowflake', '音符': 'fas fa-music', '葉子': 'fas fa-leaf', '雲朵': 'fas fa-cloud', '咖啡': 'fas fa-coffee', '火箭': 'fas fa-rocket' }
+        },
+        cache: {}, 
+        state: { activeThemeId: null, activeFontId: null, activeSymbols: [] },
+        
+        init() { this.cacheElements(); this.initThemes(); this.initFonts(); this.initSymbols(); this.bindEvents(); this.addPage(); new Sortable(this.cache.pagesContainer, { animation: 150, handle: '.drag-handle', onEnd: this.updatePageNumbers.bind(this) }); this.initMascot(); },
+        
+        cacheElements() { 
+            const D = document; 
+            this.cache = { 
+                app: D.getElementById('app-container'), 
+                form: D.getElementById('storybook-form'), 
+                pagesContainer: D.getElementById('pages-container'), 
+                pageTemplate: D.getElementById('page-template'), 
+                loader: D.getElementById('loader'), 
+                mascot: D.getElementById("mascot"), 
+                themeButtonsContainer: D.getElementById('theme-buttons-container'), 
+                fontButtonsContainer: D.getElementById('font-buttons-container'),
+                symbolButtonsContainer: D.getElementById('symbol-buttons-container'), 
+                customSymbolsInput: D.getElementById('custom-symbols-input'), 
+                symbolPreviewContainer: D.getElementById('symbol-preview-container'), 
+                loadFileInput: D.getElementById('load-file-input'), 
+            }; 
+        },
+        
+        initThemes() { this.CONFIG.THEMES.forEach(theme => { this.cache.themeButtonsContainer.innerHTML += `<button type="button" class="theme-btn" data-theme-id="${theme.id}" title="${theme.name}" style="background: linear-gradient(135deg, ${theme.book['--cover-grad-start']}, ${theme.book['--cover-grad-end']})"></button>`; }); this.applyGeneratorTheme(this.CONFIG.THEMES[0].id); },
+        
+        initFonts() {
+            this.CONFIG.FONTS.forEach(font => {
+                this.cache.fontButtonsContainer.innerHTML += `<button type="button" class="font-btn px-4 py-2 rounded-md" data-font-id="${font.id}" style="font-family: ${font.value};">${font.name}</button>`;
+            });
+            this.applyFont(this.CONFIG.FONTS[0].id, false);
+        },
+        
+        initSymbols() { Object.entries(this.CONFIG.SYMBOLS).forEach(([key, val]) => { this.cache.symbolButtonsContainer.innerHTML += `<button type="button" class="symbol-btn px-3 py-1 rounded-md text-sm" data-symbol-key="${key}"><i class="${val}"></i>${key}</button>`; }); },
+        
+        bindEvents() { 
+            this.cache.app.addEventListener('click', this.handleAppClick.bind(this)); 
+            this.cache.app.addEventListener('change', (e) => { 
+                if (e.target.matches('.image-input')) this.updateImagePreview(e.target); 
+            }); 
+            this.cache.customSymbolsInput.addEventListener('input', this.renderSymbolPreview.bind(this)); 
+            this.cache.loadFileInput.addEventListener('change', this.handleFileLoad.bind(this)); 
+            this.cache.form.addEventListener('submit', this.handleFormSubmit.bind(this)); 
+        },
+        
+        handleAppClick(e) { 
+            const target = e.target.closest('button'); 
+            if (!target) return; 
+            if (target.id === 'add-page-btn') this.addPage(); 
+            if (target.id === 'save-progress-btn') this.saveProgress(); 
+            if (target.id === 'load-progress-btn') this.cache.loadFileInput.click(); 
+            if (target.classList.contains('remove-page-btn')) { const page = target.closest('.page-entry'); page.style.opacity = '0'; setTimeout(() => { page.remove(); this.updatePageNumbers(); }, 300); } 
+            if (target.classList.contains('theme-btn')) this.applyGeneratorTheme(target.dataset.themeId); 
+            if (target.classList.contains('font-btn')) this.applyFont(target.dataset.fontId); 
+            if (target.classList.contains('symbol-btn')) { target.classList.toggle('active'); this.renderSymbolPreview(); } 
+            if (target.id === 'clear-symbols-btn') { this.cache.customSymbolsInput.value = ''; document.querySelectorAll('.symbol-btn.active').forEach(btn => btn.classList.remove('active')); this.renderSymbolPreview(); } 
+        },
+
+        applyFont(fontId, load = true) {
+            const font = this.CONFIG.FONTS.find(f => f.id === fontId);
+            if (!font) return;
+
+            this.state.activeFontId = font.id;
+            
+            if (load) {
+                document.querySelectorAll('link[data-dynamic-font]').forEach(link => link.remove());
+                const fontLink = document.createElement('link');
+                fontLink.rel = 'stylesheet';
+                fontLink.href = font.importUrl;
+                fontLink.dataset.dynamicFont = true;
+                document.head.appendChild(fontLink);
+            }
+
+            document.body.style.fontFamily = font.value;
+
+            this.cache.fontButtonsContainer.querySelectorAll('.font-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.fontId === fontId);
+            });
+        },
+
+        handleFileLoad(e) { if (!e.target.files.length) return; const file = e.target.files[0], reader = new FileReader(); reader.onload = (event) => { try { this.populateFromLoad(JSON.parse(event.target.result)); } catch(err) { alert('讀取檔案失敗，請確認檔案格式正確！'); console.error(err); }}; reader.readAsText(file); e.target.value = ''; },
+        async handleFormSubmit(e) { e.preventDefault(); this.cache.loader.style.display = 'flex'; try { const formData = this.collectAndValidateData(); await this.createAndDownloadZip(formData); } catch (error) { alert(`生成失敗：${error.message}`); } finally { this.cache.loader.style.display = 'none'; } },
+        addPage(data = {}) { const newPageFragment = this.cache.pageTemplate.content.cloneNode(true), newPage = newPageFragment.querySelector('.page-entry'); if (data.text) newPage.querySelector('.page-text').value = data.text; if (data.imageFilename) newPage.querySelector('.image-reselect-prompt').textContent = `請重新選擇: ${data.imageFilename}`; this.cache.pagesContainer.appendChild(newPageFragment); this.updatePageNumbers(); },
+        updatePageNumbers() { this.cache.pagesContainer.querySelectorAll('.page-entry').forEach((page, i) => { page.querySelector('.page-title').textContent = `第 ${i + 1} 頁`; }); },
+        
+        updateImagePreview(inputEl) {
+            const file = inputEl.files[0];
+            if (!file) return;
+
+            const parent = inputEl.closest('.page-entry, #cover-entry');
+            const prompt = parent.querySelector('.image-reselect-prompt');
+            if (prompt) prompt.textContent = '';
+            
+            const container = parent.querySelector('.preview-image-container');
+            if (!container) return;
+
+            const placeholder = container.querySelector('.preview-placeholder');
+            const previewImg = container.querySelector('.preview-image');
+
+            if (placeholder && previewImg) {
+                placeholder.classList.add('hidden');
+                previewImg.classList.remove('hidden');
+                previewImg.src = URL.createObjectURL(file);
+                previewImg.onload = () => URL.revokeObjectURL(previewImg.src);
+            }
+        },
+
+        applyGeneratorTheme(themeId) { const theme = this.CONFIG.THEMES.find(t => t.id === themeId); if (!theme) return; this.state.activeThemeId = theme.id; for (const [key, value] of Object.entries(theme.gen)) { document.documentElement.style.setProperty(`--gen-${key}`, value); } document.querySelectorAll('.theme-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.themeId === themeId)); this.renderSymbolPreview(); },
+        updateActiveSymbols() { const custom = this.cache.customSymbolsInput.value.trim().split(/\s+/).filter(Boolean); const preset = Array.from(this.cache.symbolButtonsContainer.querySelectorAll('.symbol-btn.active')).map(btn => this.CONFIG.SYMBOLS[btn.dataset.symbolKey]); this.state.activeSymbols = [...new Set([...preset, ...custom])]; },
+        
+        renderSymbolPreview() {
+            this.updateActiveSymbols(); this.cache.symbolPreviewContainer.innerHTML = ''; if (this.state.activeSymbols.length === 0) return;
+            for (let i = 0; i < 20; i++) {
+                const el = document.createElement("div"); el.className = "floating-symbol";
+                const content = document.createElement('span'); content.className = 'preview-floating-symbol';
+                const s = this.state.activeSymbols[Math.floor(Math.random() * this.state.activeSymbols.length)];
+                if (s.startsWith('fas ')) { const icon = document.createElement('i'); icon.className = s; content.appendChild(icon); } else { content.textContent = s; }
+                el.appendChild(content);
+                const size = 2 * Math.random() + 1.5; const top = Math.random() * 100; const duration = 20 * Math.random() + 25; const delay = 25 * Math.random();
+                el.style.setProperty('--x-start', `${Math.random() > 0.5 ? -10 : 110}vw`); el.style.setProperty('--y-start', `${top}vh`);
+                el.style.setProperty('--x-mid', `${20 + Math.random() * 60}vw`); el.style.setProperty('--y-mid', `${top + (Math.random() - 0.5) * 20}vh`);
+                el.style.setProperty('--x-end', `${Math.random() > 0.5 ? 110 : -10}vw`); el.style.setProperty('--y-end', `${top}vh`);
+                el.style.fontSize = size + "rem"; el.style.animationDuration = duration + 's'; el.style.animationDelay = '-' + delay + 's';
+                this.cache.symbolPreviewContainer.appendChild(el);
+            }
+        },
+        
+        collectForSave() {
+            this.updateActiveSymbols();
+            const data = { 
+                version: "1.0", 
+                title: document.getElementById('book-title').value, 
+                subtitle: document.getElementById('book-subtitle').value, 
+                copyright: document.getElementById('copyright').value, 
+                themeId: this.state.activeThemeId, 
+                fontId: this.state.activeFontId,
+                symbols: this.state.activeSymbols, 
+                pages: [] 
+            };
+            const coverInput = document.getElementById('cover-image'); data.coverImageFilename = coverInput.files[0]?.name || document.querySelector('#cover-entry .image-reselect-prompt').textContent.replace('請重新選擇: ','') || null;
+            this.cache.pagesContainer.querySelectorAll('.page-entry').forEach(entry => { const input = entry.querySelector('.image-input'), prompt = entry.querySelector('.image-reselect-prompt'); data.pages.push({ text: entry.querySelector('.page-text').value, imageFilename: input.files[0]?.name || prompt.textContent.replace('請重新選擇: ','') || null }); });
+            return data;
+        },
+        
+        populateFromLoad(data) { 
+            if (!data || data.version !== "1.0") { alert('無效的存檔檔案格式！'); return; } 
+            document.getElementById('book-title').value = data.title; 
+            document.getElementById('book-subtitle').value = data.subtitle; 
+            document.getElementById('copyright').value = data.copyright; 
+            this.applyGeneratorTheme(data.themeId); 
+            this.applyFont(data.fontId || this.CONFIG.FONTS[0].id);
+            this.cache.customSymbolsInput.value = (data.symbols || []).filter(s => !Object.values(this.CONFIG.SYMBOLS).includes(s)).join(' '); 
+            document.querySelectorAll('.symbol-btn').forEach(btn => btn.classList.toggle('active', (data.symbols || []).includes(this.CONFIG.SYMBOLS[btn.dataset.symbolKey]))); 
+            this.renderSymbolPreview(); 
+            document.querySelector('#cover-entry .image-reselect-prompt').textContent = data.coverImageFilename ? `請重新選擇: ${data.coverImageFilename}` : ''; 
+            this.cache.pagesContainer.innerHTML = ''; 
+            (data.pages || []).forEach(pageData => this.addPage(pageData)); 
+        },
+        
+        saveProgress() { const data = this.collectForSave(); const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'}); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'storybook_project.json'; link.click(); URL.revokeObjectURL(link.href); },
+        
+        collectAndValidateData() {
+            this.updateActiveSymbols();
+            const data = { 
+                title: document.getElementById('book-title').value.trim(), 
+                subtitle: document.getElementById('book-subtitle').value.trim(), 
+                copyright: document.getElementById('copyright').value.trim(), 
+                themeId: this.state.activeThemeId,
+                fontId: this.state.activeFontId,
+                symbols: this.state.activeSymbols, 
+                pages: [] 
+            };
+            const coverFile = document.getElementById('cover-image').files[0]; if (!coverFile) throw new Error("封面的圖片尚未上傳！"); data.coverFile = coverFile;
+            const pageEntries = this.cache.pagesContainer.querySelectorAll('.page-entry'); if (pageEntries.length === 0) throw new Error("請至少新增一頁故事內容！");
+            pageEntries.forEach((entry, i) => { const text = entry.querySelector('.page-text').value.trim(), imageFile = entry.querySelector('.image-input').files[0]; if (!text) throw new Error(`第 ${i + 1} 頁的文字內容尚未填寫！`); if (!imageFile) throw new Error(`第 ${i + 1} 頁的圖片尚未上傳！`); data.pages.push({ text, imageFile }); });
+            return data;
+        },
+        
+        async createAndDownloadZip(formData) { 
+            const getExtension = (file) => file.name.split('.').pop().toLowerCase(); 
+            const selectedTheme = this.CONFIG.THEMES.find(t => t.id === formData.themeId); 
+            const selectedFont = this.CONFIG.FONTS.find(f => f.id === formData.fontId) || this.CONFIG.FONTS[0];
+            const storyData = { 
+                title: formData.title, 
+                subtitle: formData.subtitle, 
+                copyright: formData.copyright, 
+                theme: selectedTheme, 
+                font: selectedFont,
+                symbols: formData.symbols, 
+                coverImageName: `cover.${getExtension(formData.coverFile)}`, 
+                pages: formData.pages.map((p, i) => ({ text: p.text, imageName: `page_${String(i + 1).padStart(2, '0')}.${getExtension(p.imageFile)}` })) 
+            }; 
+            const storybookHTML = generateStorybookHTML(storyData); 
+            const zip = new JSZip(); 
+            zip.file("index.html", storybookHTML); 
+            const pageFolder = zip.folder("page"); 
+            pageFolder.file(storyData.coverImageName, formData.coverFile); 
+            formData.pages.forEach((p, i) => { pageFolder.file(storyData.pages[i].imageName, p.imageFile); }); 
+            const content = await zip.generateAsync({ type: "blob" }); 
+            const link = document.createElement("a"); 
+            link.href = URL.createObjectURL(content); 
+            link.download = "MyStorybook.zip"; 
+            document.body.appendChild(link); link.click(); document.body.removeChild(link); 
+        },
+        
+        initMascot() { let c=0; this.cache.mascot.addEventListener("click", (e) => { this.cache.mascot.classList.add("shake"); setTimeout(() => this.cache.mascot.classList.remove("shake"), 500); for(let i=0; i<12; i++){ const p = document.createElement("div"); p.className="particle"; p.style.backgroundColor=["#ff6b6b","#4ecdc4","#45b7d1","#96ceb4","#feca57","#ff9ff3"][Math.floor(6*Math.random())]; p.style.left=e.clientX+"px"; p.style.top=e.clientY+"px"; const dx=200*(.5-Math.random()), dy=200*(.5-Math.random()); p.style.setProperty("--dx",dx+"px"); p.style.setProperty("--dy",dy+"px"); document.body.appendChild(p); setTimeout(()=>p.remove(),1e3); } if(++c >= 5) { setTimeout(() => { this.cache.mascot.classList.add("explode"); setTimeout(() => { this.cache.mascot.classList.remove("explode"); this.cache.mascot.style.transform="scale(1)"; c=0; }, 800); }, 200); } }); }
+    };
+    App.init();
+});
+
+function generateStorybookHTML(data) { 
+    const themeCSS = Object.entries(data.theme.book).filter(([k,v]) => k.startsWith('--')).map(([k, v]) => `${k}: ${v};`).join(' '); 
+    const backCoverContent = `<div class="cover-page-content"><h2 class="text-3xl font-bold mb-2">${data.title}</h2><p>${data.subtitle}</p></div>`; 
+    const symbolColor = data.theme.book.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'; 
+    function generatePageLeaves() { 
+        let h = ''; 
+        if (data.pages.length === 0) return ''; 
+        h += `<div class="page-wrapper" id="p0"><div class="page page-front"><div class="cover-page-content"><img src="page/${data.coverImageName}" alt="封面" class="cover-image"><h2 class="text-3xl font-bold mb-4">${data.title}</h2><button onclick="openBook()" class="nav-button text-white px-8 py-3 rounded-full font-semibold text-lg">開始閱讀</button></div></div><div class="page page-back"><div class="page-content-image"><img src="page/${data.pages[0].imageName}" alt="圖 1" class="page-image"><div class="page-number">- 1 -</div></div><div class="page-content-mobile"><img src="page/${data.pages[0].imageName}" alt="圖 1" class="page-image"><p class="page-text">${data.pages[0].text}</p><div class="page-number">- 1/2 -</div></div></div></div>`; 
+        for (let i = 1; i < data.pages.length; i++) { 
+            const p = data.pages[i-1], c = data.pages[i], dF = i*2, dB = dF+1; 
+            h += `<div class="page-wrapper" id="p${i}"><div class="page page-front"><div class="page-content-text"><p class="page-text">${p.text}</p><div class="page-number">- ${dF} -</div></div></div><div class="page page-back"><div class="page-content-image"><img src="page/${c.imageName}" alt="圖 ${i+1}" class="page-image"><div class="page-number">- ${dB} -</div></div><div class="page-content-mobile"><img src="page/${c.imageName}" alt="圖 ${i+1}" class="page-image"><p class="page-text">${c.text}</p><div class="page-number">- ${dB}/${dB+1} -</div></div></div></div>`; 
+        } 
+        const l = data.pages[data.pages.length-1], lN = data.pages.length*2; 
+        h += `<div class="page-wrapper" id="p${data.pages.length}"><div class="page page-front"><div class="page-content-text"><p class="page-text">${l.text}</p><div class="page-number">- ${lN} -</div></div></div><div class="page page-back">${backCoverContent}</div></div>`; 
+        return h; 
+    } 
+    return `
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${data.title}</title><script src="https://cdn.tailwindcss.com"><\/script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" /><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="${data.font.importUrl}" rel="stylesheet"><style>:root { ${themeCSS} }html,body{width:100%;overflow-x:hidden}*{font-family:${data.font.value}}body{background-color:var(--bg-grad-start)}body::before{content:'';position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(to bottom right,var(--bg-grad-start),var(--bg-grad-mid),var(--bg-grad-end));z-index:-20}.book-container{perspective:2500px}.book{position:relative;width:100%;max-width:900px;height:600px;margin:0 auto;transform:translateX(-25%);transition:transform .8s cubic-bezier(.645,.045,.355,1);cursor:pointer}.book.is-open{transform:translateX(0)}.book.is-showing-back{transform:translateX(25%)}.page-wrapper{position:absolute;width:50%;height:100%;top:0;right:0;transform-style:preserve-3d;transform-origin:left center;transition:transform .8s cubic-bezier(.645,.045,.355,1)}.page-wrapper.flipped{transform:rotateY(-180deg)}.page{position:absolute;width:100%;height:100%;background:linear-gradient(135deg,var(--page-bg-start),var(--page-bg-end));border:2px solid var(--page-border);border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.15);backface-visibility:hidden;overflow:hidden;display:flex;align-items:center;justify-content:center}.page-back{transform:rotateY(180deg)}.page-content-image,.page-content-text{position:relative;padding:20px;width:100%;height:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center}.page-image{width:100%;height:100%;object-fit:cover;border-radius:8px}.page-text{font-size:19px;line-height:2;color:var(--page-text);text-align:justify;background:rgba(255,255,255,.7);border-radius:8px;padding:25px}.cover-page-content{width:100%;height:100%;background:linear-gradient(135deg,var(--cover-grad-start),var(--cover-grad-end));display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#fff;border-radius:8px;padding:20px}.cover-image{width:300px;height:400px;object-fit:cover;border-radius:12px;margin-bottom:20px;box-shadow:0 10px 30px rgba(0,0,0,.3)}.page-content-mobile{display:none;flex-direction:column;width:100%;height:100%;padding:1rem;box-sizing:border-box;overflow-y:auto}.page-content-mobile .page-image{width:100%;height:auto;aspect-ratio:16/10;object-fit:cover;border-radius:8px;flex-shrink:0}.page-content-mobile .page-text{font-size:16px;line-height:1.8;padding:1rem .5rem;background:transparent;color:var(--page-text);text-align:justify;flex-grow:1}.page-number{position:absolute;bottom:15px;left:50%;transform:translateX(-50%);color:#4a5568;background:rgba(255,255,255,.6);padding:2px 12px;border-radius:12px;font-size:14px;font-weight:500;user-select:none}.floating-symbol-wrapper{position:absolute;animation-iteration-count:infinite;animation-timing-function:linear;will-change:transform}.floating-symbol-inner{display:inline-block;color:${symbolColor};text-shadow:0 0 8px rgba(173,216,230,.3);animation-iteration-count:infinite;animation-timing-function:ease-in-out;will-change:transform}@keyframes swim-lr{from{transform:translateX(-10vw)}to{transform:translateX(110vw)}}@keyframes swim-rl{from{transform:translateX(110vw)}to{transform:translateX(-10vw)}}@keyframes bob-float{0%{transform:translateY(8px)}50%{transform:translateY(-8px)}100%{transform:translateY(8px)}}.nav-button{background:linear-gradient(135deg,var(--cover-grad-start),var(--cover-grad-end));transition:all .3s ease;border:none;cursor:pointer}.nav-button:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 25px rgba(0,0,0,.2)}.nav-button:disabled{background:#d1d5db;cursor:not-allowed;transform:none;box-shadow:none}.page-indicator{transition:all .3s ease;cursor:pointer}.page-indicator.active{background:var(--cover-grad-start)!important;transform:scale(1.3)}.page-indicator:hover{transform:scale(1.1)}@media (max-width:900px){body{display:block;padding:1.5rem 0}.book-container{padding:0}.book{width:90vw;max-width:400px;height:75vh;max-height:600px;transform:translateX(0);margin:0 auto;aspect-ratio:unset;cursor:default}.book.is-open,.book.is-showing-back{transform:translateX(0)}.page-wrapper{width:100%;transform-origin:center center}.cover-page-content{gap:.75rem;justify-content:center;padding:1rem}.cover-image{width:60%;height:auto;margin-bottom:0}.cover-page-content h2{font-size:1.5rem;margin-bottom:0}.cover-page-content .nav-button{padding:.5rem 1.5rem;font-size:1rem}.page-number{bottom:8px;font-size:12px;padding:2px 8px}.page-content-mobile{display:flex}.page-content-image,.page-content-text{display:none}}</style></head>
+<body>
+    <div id="background-symbols" class="fixed inset-0 -z-10 pointer-events-none overflow-hidden"></div>
+    <header class="text-center py-4 md:py-6">
+        <h1 class="text-3xl md:text-6xl font-bold mb-2 drop-shadow-lg" style="color: var(--header-text-color);">${data.title}</h1>
+        <p class="text-md md:text-lg" style="color: var(--subheader-text-color);">${data.subtitle}</p>
+    </header>
+    <main class="book-container px-4 mb-4 md:mb-8"><div id="book" class="book"><div id="page-leaves">${generatePageLeaves()}</div></div></main>
+    <div id="navigation" class="hidden flex justify-center items-center gap-4 md:gap-6 mt-8"><button id="prevBtn" onclick="goPrevPage()" class="nav-button text-white px-6 py-3 rounded-full font-semibold">← 上一頁</button><div id="page-indicators" class="flex gap-2"></div><button id="nextBtn" onclick="goNextPage()" class="nav-button text-white px-6 py-3 rounded-full font-semibold">下一頁 →</button></div>
+    <div id="restart-section" class="hidden text-center mt-6"><button onclick="closeBook(true)" class="nav-button text-white px-8 py-3 rounded-full font-semibold text-lg">重新閱讀</button></div>
+    <footer class="text-center py-6" style="color: var(--subheader-text-color);"><p class="text-sm opacity-75">${data.copyright}</p></footer>
+    <script>const book=document.getElementById("book"),pageWrappers=document.querySelectorAll(".page-wrapper"),prevBtn=document.getElementById("prevBtn"),nextBtn=document.getElementById("nextBtn"),numLeaves=pageWrappers.length;let isFlipping=!1;const isMobile=()=>window.innerWidth<=900;let currentLocation=0;const totalPages=numLeaves;function updateMobileView(){pageWrappers.forEach((e,t)=>{const o=t<currentLocation;e.classList.toggle("flipped",o),currentLocation>0&&t===currentLocation-1?e.style.zIndex=numLeaves+1:e.style.zIndex=o?t:numLeaves-t})}function openBook(){isFlipping||(isFlipping=!0,currentLocation=1,pageWrappers[0].classList.add("flipped"),isMobile()?updateMobileView():(book.classList.add("is-open"),pageWrappers[0].style.zIndex=numLeaves),document.getElementById("navigation").classList.remove("hidden"),updateNavButtons(),updatePageIndicators(),setTimeout(()=>{isFlipping=!1},800))}function closeBook(e=!1){!isFlipping||e?(isFlipping=!0,currentLocation=0,pageWrappers.forEach(t=>{e&&(t.style.transition="none"),t.classList.remove("flipped")}),setTimeout(()=>{pageWrappers.forEach((e,t)=>{e.style.transition="",e.style.zIndex=numLeaves-t})},50),isMobile()||book.classList.remove("is-open","is-showing-back"),document.getElementById("navigation").classList.add("hidden"),document.getElementById("restart-section").classList.add("hidden"),updatePageIndicators(),setTimeout(()=>{isFlipping=!1},800)):void 0}function goNextPage(){isFlipping||currentLocation>=totalPages||(isFlipping=!0,currentLocation++,isMobile()?updateMobileView():(pageWrappers[currentLocation-1].classList.add("flipped"),pageWrappers[currentLocation-1].style.zIndex=currentLocation-1+numLeaves,currentLocation===numLeaves&&book.classList.add("is-showing-back")),updateNavButtons(),updatePageIndicators(),setTimeout(()=>{isFlipping=!1},800))}function goPrevPage(){if(!isFlipping&&!(currentLocation<=0)){if(1===currentLocation)return void closeBook();isFlipping=!0,currentLocation--,isMobile()?updateMobileView():(currentLocation+1===numLeaves&&book.classList.remove("is-showing-back"),pageWrappers[currentLocation].classList.remove("flipped"),setTimeout(()=>{pageWrappers[currentLocation].style.zIndex=numLeaves-currentLocation},50)),updateNavButtons(),updatePageIndicators(),setTimeout(()=>{isFlipping=!1},800)}}function updateNavButtons(){prevBtn.disabled=currentLocation<=0,nextBtn.disabled=currentLocation>=totalPages,currentLocation>=totalPages?(document.getElementById("restart-section").classList.remove("hidden"),document.getElementById("navigation").classList.add("hidden")):(document.getElementById("restart-section").classList.add("hidden"),currentLocation>0&&document.getElementById("navigation").classList.remove("hidden"))}const indicatorContainer=document.getElementById("page-indicators");function generatePageIndicators(){indicatorContainer.innerHTML="";for(let e=1;e<=totalPages;e++){const t=document.createElement("div");t.className="page-indicator w-3 h-3 rounded-full bg-gray-400",t.dataset.page=e,t.onclick=()=>goToPage(e),indicatorContainer.appendChild(t)}}function updatePageIndicators(){document.querySelectorAll(".page-indicator").forEach(e=>{e.classList.toggle("active",parseInt(e.dataset.page)===currentLocation)})}function goToPage(e){if(!isFlipping&&e!==currentLocation){const t=0===currentLocation;isFlipping=!0,currentLocation=e,isMobile()?updateMobileView():(pageWrappers.forEach((t,o)=>{const i=o<currentLocation;t.classList.toggle("flipped",i),t.style.zIndex=i?o+numLeaves:numLeaves-o}),t&&book.classList.add("is-open"),e>=numLeaves?book.classList.add("is-showing-back"):book.classList.remove("is-showing-back")),t&&document.getElementById("navigation").classList.remove("hidden"),updateNavButtons(),updatePageIndicators(),setTimeout(()=>{isFlipping=!1},800)}}function handleLayoutChange(){isMobile()?book.classList.remove("is-open","is-showing-back"):currentLocation<=0?book.classList.remove("is-open","is-showing-back"):currentLocation>=totalPages?book.classList.add("is-open","is-showing-back"):book.classList.add("is-open","is-showing-back")}pageWrappers.forEach((e,t)=>{e.style.zIndex=numLeaves-t}),generatePageIndicators();let resizeTimer;window.addEventListener("resize",()=>{clearTimeout(resizeTimer),resizeTimer=setTimeout(handleLayoutChange,150)}),book.addEventListener("click",function(e){if(!(currentLocation<=0||isFlipping||e.target.closest("button"))){const t=book.getBoundingClientRect();(e.clientX-t.left>t.width/2?goNextPage:goPrevPage)()}});
+    function createFloatingSymbols(){ const container=document.getElementById("background-symbols"); if(!container) return; const symbols = ${JSON.stringify(data.symbols)}; if(symbols.length === 0) return; for(let i=0; i<30; i++){ const wrapper=document.createElement("div"); wrapper.className="floating-symbol-wrapper"; const inner=document.createElement("div"); inner.className="floating-symbol-inner"; const s=symbols[Math.floor(Math.random()*symbols.length)]; if (s.startsWith('fas ')) { const icon=document.createElement('i'); icon.className = s; inner.appendChild(icon); } else { inner.textContent = s; } const size=2*Math.random()+1, top=Math.random()*100, hDuration=20*Math.random()+25, vDuration=3*Math.random()+2, delay=25*Math.random(), opacity=.5*Math.random()+.1; wrapper.style.top=top+"vh"; wrapper.style.fontSize=size+"rem"; wrapper.style.opacity=opacity; wrapper.style.animationName=Math.random()>.5?"swim-rl":"swim-lr"; wrapper.style.animationDuration=hDuration+"s"; wrapper.style.animationDelay="-"+delay+"s"; wrapper.style.animationTimingFunction="ease-in-out"; inner.style.animationName='bob-float'; inner.style.animationDuration=vDuration+'s'; wrapper.appendChild(inner); container.appendChild(wrapper); } }createFloatingSymbols();<\/script>
+</body>
+</html>`;
+}
+</script>
+
+</body>
+</html>
