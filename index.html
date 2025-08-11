@@ -54,22 +54,19 @@
         .symbol-btn i { margin-right: 0.5rem; }
         .image-reselect-prompt { color: #f97316; font-size: 0.8rem; font-weight: bold; margin-top: 0.25rem; display: block; min-height: 1.2rem;}
 
-        /* --- START: API Key Section Styles (from chatbot) --- */
+        /* --- START: API Key Section Styles --- */
         .api-key-section .info-box {
             padding: 10px; border-radius: 8px; border-left: 4px solid var(--gen-header);
             font-size: 0.9em; margin-bottom: 10px; background-color: rgba(79, 70, 229, 0.05); color: #374151;
         }
-        .api-key-section .info-box.warning { border-color: #f59e0b; background-color: rgba(245, 158, 11, 0.1); }
         .api-key-label-wrapper { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
         .api-key-label-wrapper label { font-weight: 600; color: var(--gen-header); }
         .api-options { display: flex; align-items: center; gap: 12px; }
         .api-options .api-tutorial-link { color: #4338ca; text-decoration: none; font-size: 0.9em; cursor: pointer; font-weight: 500;}
         .api-options .api-tutorial-link:hover { text-decoration: underline; }
-        .api-options #enableBackupKey { color: #6b7280; font-size: 1rem; transition: color 0.2s, transform 0.2s; text-decoration: none; }
-        .api-options #enableBackupKey:hover { color: var(--gen-header); transform: rotate(45deg); }
         /* --- END: API Key Section Styles --- */
 
-        /* --- START: Modal Styles (from chatbot) --- */
+        /* --- START: Modal Styles --- */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: none; justify-content: center; align-items: center; z-index: 1000; animation: fadeInModal 0.3s; }
         @keyframes fadeInModal { from { opacity: 0; } to { opacity: 1; } }
         .modal-content { background: var(--gen-card-bg); padding: 30px; border-radius: 8px; max-width: 600px; width: 90%; position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.2); max-height: 80vh; overflow-y: auto; color: var(--gen-text); }
@@ -142,16 +139,13 @@
             <fieldset class="space-y-4 bg-indigo-50 p-6 rounded-xl border border-indigo-200">
                 <legend class="form-legend text-2xl font-semibold border-b pb-2 mb-4 text-indigo-700"><i class="fas fa-wand-magic-sparkles mr-2"></i> AI 輔助創作</legend>
                 <div class="api-key-section">
-                    <div class="info-box" id="api-info-box">
-                        <p id="api-info-text">請提供您的 Google Gemini API 金鑰，以啟用 AI 生成故事功能。</p>
+                    <div class="info-box">
+                        <p>請提供您的 Google Gemini API 金鑰，以啟用 AI 生成故事功能。</p>
                     </div>
                     <div class="api-key-label-wrapper">
                         <label for="gemini-api-key">您的 API 金鑰 (必填)</label>
                         <div class="api-options">
                             <a href="#" class="api-tutorial-link">(如何取得？)</a>
-                            <a href="#" id="enableBackupKey" title="無法取得金鑰？點此啟用備用金鑰">
-                                <i class="fas fa-cog"></i>
-                            </a>
                         </div>
                     </div>
                     <input type="password" id="gemini-api-key" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-gray-800" placeholder="請貼上您從 Google AI Studio 取得的 API 金鑰">
@@ -227,7 +221,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- App Object: Encapsulates all logic ---
     const App = {
         CONFIG: {
-            BACKUP_API_KEY: "AIzaSyCerlnUOTQ4-5K6VRpugpRI1URcOF6ai2w",
             FONTS: [
                 { id: 'sans-serif', name: '現代無襯線 (預設)', value: "'Noto Sans TC', sans-serif", importUrl: "https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap"},
                 { id: 'serif', name: '典雅襯線體', value: "'Noto Serif TC', serif", importUrl: "https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;700&display=swap"},
@@ -259,8 +252,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state: { 
             activeThemeId: null, 
             activeFontId: null, 
-            activeSymbols: [],
-            isBackupKeyEnabled: false // State for backup key
+            activeSymbols: []
         },
         
         init() { 
@@ -294,16 +286,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 aiGenerateBtn: D.getElementById('ai-generate-btn'),
                 storyOutline: D.getElementById('story-outline'),
                 geminiApiKey: D.getElementById('gemini-api-key'),
-                // New API Key UI Elements
-                apiInfoBox: D.getElementById('api-info-box'),
-                apiInfoText: D.getElementById('api-info-text'),
-                enableBackupKey: D.getElementById('enableBackupKey'),
+                // API Key Modal Elements
                 apiKeyModal: D.getElementById('api-key-modal'),
                 openApiKeyModalLink: D.querySelector('.api-tutorial-link')
             }; 
         },
         
-        // ... (initThemes, initFonts, initSymbols remain the same) ...
         initThemes() { this.CONFIG.THEMES.forEach(theme => { this.cache.themeButtonsContainer.innerHTML += `<button type="button" class="theme-btn" data-theme-id="${theme.id}" title="${theme.name}" style="background: linear-gradient(135deg, ${theme.book['--cover-grad-start']}, ${theme.book['--cover-grad-end']})"></button>`; }); this.applyGeneratorTheme(this.CONFIG.THEMES[0].id); },
         initFonts() { this.CONFIG.FONTS.forEach(font => { this.cache.fontButtonsContainer.innerHTML += `<button type="button" class="font-btn px-4 py-2 rounded-md" data-font-id="${font.id}" style="font-family: ${font.value};">${font.name}</button>`; }); this.applyFont(this.CONFIG.FONTS[0].id, false); },
         initSymbols() { Object.entries(this.CONFIG.SYMBOLS).forEach(([key, val]) => { this.cache.symbolButtonsContainer.innerHTML += `<button type="button" class="symbol-btn px-3 py-1 rounded-md text-sm" data-symbol-key="${key}"><i class="${val}"></i>${key}</button>`; }); },
@@ -327,18 +315,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     this.cache.apiKeyModal.style.display = 'none';
                 }
             });
-            this.cache.enableBackupKey.addEventListener('click', (e) => {
-                e.preventDefault();
-                if (confirm("這將啟用系統內建的備用金鑰進行 AI 生成。\n\n此金鑰為多人共用，尖峰時段可能不穩定或無法使用。\n強烈建議您使用自己的免費金鑰以獲得最佳體驗。\n\n確定要啟用備用金鑰嗎？")) {
-                    this.state.isBackupKeyEnabled = true;
-                    this.cache.geminiApiKey.value = '已啟用系統備用金鑰';
-                    this.cache.geminiApiKey.disabled = true;
-                    this.cache.apiInfoBox.classList.add('warning');
-                    this.cache.apiInfoText.innerHTML = '已啟用系統備用金鑰。此金鑰為多人共用，可能不穩定。若要切換回您自己的金鑰，<strong>請重新整理頁面</strong>。';
-                    this.cache.enableBackupKey.style.display = 'none';
-                    alert('系統備用金鑰已啟用。');
-                }
-            });
         },
         
         handleAppClick(e) { 
@@ -355,12 +331,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (target.id === 'ai-generate-btn') this.generateStoryWithAI();
         },
 
-        // --- START: AI Generation Logic (with new API key handling) ---
+        // --- START: AI Generation Logic ---
 
         getActiveApiKey() {
-            if (this.state.isBackupKeyEnabled) {
-                return this.CONFIG.BACKUP_API_KEY;
-            }
             return this.cache.geminiApiKey.value.trim();
         },
         
@@ -377,10 +350,10 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         async generateStoryWithAI() {
-            const apiKey = this.getActiveApiKey(); // Use the new helper function
+            const apiKey = this.getActiveApiKey();
             if (!apiKey || !apiKey.startsWith('AIzaSy')) {
-                alert('請輸入有效的 Google AI API 金鑰，或啟用備用金鑰！');
-                if (!this.state.isBackupKeyEnabled) this.cache.geminiApiKey.focus();
+                alert('請輸入有效的 Google AI API 金鑰！');
+                this.cache.geminiApiKey.focus();
                 return;
             }
 
@@ -403,7 +376,7 @@ document.addEventListener('DOMContentLoaded', () => {
             this.cache.loader.style.display = 'flex';
 
             try {
-                const textPrompt = `你是一位富有創意、擅長講故事給兒童聽的世界級繪本作家。你的任務是根據使用者提供的圖片和故事大綱，創作一個連貫、有趣、且適合兒童的短篇故事。請確保故事文字與圖片順序緊密對應。\n\n故事大綱：\n${storyOutline || "沒有提供大綱，請自由發揮你的創意，創作一個溫暖且富有想像力的故事。"}\n\n你的回答必須是嚴格的 JSON 格式。請將結果以一個 JSON 物件回傳，物件中有一個 key 叫做 "story"，其 value 是一個陣列。陣列中的每個物件都包含一個 key "page_text"，對應一張圖的故事文字。請嚴格按照圖片順序生成文字。\n\n範例格式：\n{\n  "story": [\n    { "page_text": "第一張圖的故事..." },\n    { "page_text": "第二張圖的故事..." }\n  ]\n}`;
+                const textPrompt = `你是一位富有創意、擅長講故事給兒童聽的世界級繪本作家。你的任務是根據使用者提供的圖片和故事大綱，創作一個連貫、有趣、且適合兒童的短篇故事，以繁體中文（臺灣）撰寫，請勿出現簡體字。請確保故事文字與圖片順序緊密對應。\n\n故事大綱：\n${storyOutline || "沒有提供大綱，請自由發揮你的創意，創作一個溫暖且富有想像力的故事。"}\n\n你的回答必須是嚴格的 JSON 格式。請將結果以一個 JSON 物件回傳，物件中有一個 key 叫做 "story"，其 value 是一個陣列。陣列中的每個物件都包含一個 key "page_text"，對應一張圖的故事文字。請嚴格按照圖片順序生成文字。\n\n範例格式：\n{\n  "story": [\n    { "page_text": "第一張圖的故事..." },\n    { "page_text": "第二張圖的故事..." }\n  ]\n}`;
                 const imageParts = await Promise.all(
                     imagePages.map(page => this.fileToGenerativePart(page.file))
                 );
@@ -452,7 +425,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // --- END: AI Generation Logic ---
 
-        // ... (All other functions like applyFont, handleFileLoad, collectAndValidateData, etc. remain the same) ...
         applyFont(fontId, load = true) {
             const font = this.CONFIG.FONTS.find(f => f.id === fontId);
             if (!font) return;
