@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -386,7 +387,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     generationConfig: { "response_mime_type": "application/json" }
                 };
 
-                const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
+                const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
                 
                 const response = await fetch(API_URL, {
                     method: 'POST',
